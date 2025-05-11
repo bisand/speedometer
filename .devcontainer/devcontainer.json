@@ -1,0 +1,44 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/cpp
+{
+	"name": "C++",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	"features": {
+		"ghcr.io/devcontainers/features/docker-in-docker": {}
+	},
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [
+		// PIO Home is blank if its port isn't exosed from within the container.
+		45045
+	],
+
+	"runArgs": [
+		// --privileged grants access to /dev on host. Arduino will most likely be /dev/ttysN
+		"--privileged"
+	],
+	// Use 'postCreateCommand' to run commands after the container is created.
+	"postCreateCommand": "sed -i 's/^ZSH_THEME=.*/ZSH_THEME=\"bira\"/' /home/vscode/.zshrc && sudo addgroup vscode dialout",
+
+	"mounts": [
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+	],
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"platformio.platformio-ide",
+				"github.vscode-pull-request-github",
+				"github.copilot",
+				"GitHub.copilot-labs",
+				"eamodio.gitlens",
+				"ms-vscode.vs-keybindings",
+				"ms-vscode.cpptools-extension-pack",
+				"ms-azuretools.vscode-containers"
+			]
+		}
+	},
+	"remoteUser": "vscode"
+}
