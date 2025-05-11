@@ -22,8 +22,8 @@ const uint8_t buttonPin = D2; // Connect push button here
 
 const int EEPROM_ADDR = 0; // EEPROM address to store calibrationFactor
 
-const float CM_PER_REV = 30.48;
-const int PULSES_PER_REV = 3;
+const float CM_PER_REV = 3 * 7.5; // = 22.5 cm per revolution
+const int PULSES_PER_REV = 3;     // Adjust if your sensor gives a different number of pulses per revolution
 const float METERS_PER_REV = CM_PER_REV / 100.0;
 const float KNOTS_PER_MPS = 1.0 / 0.51444;
 const float BASE_CONVERSION_FACTOR = (METERS_PER_REV / PULSES_PER_REV) * KNOTS_PER_MPS;
@@ -40,11 +40,14 @@ bool lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 50;
 
+unsigned long calibrationDisplayMillis = 0;
+bool showCalibration = false;
+
 void IRAM_ATTR onPulse()
 {
   pulseCount++;
-  Serial.print("Pulse count: ");
-  Serial.println(pulseCount);
+  // Serial.print("Pulse count: ");
+  // Serial.println(pulseCount);
 }
 
 void loadCalibration()
@@ -61,8 +64,8 @@ void saveCalibration()
 {
   EEPROM.put(EEPROM_ADDR, calibrationFactor);
   EEPROM.commit();
-  Serial.print("Calibration saved: ");
-  Serial.println(calibrationFactor, 3);
+  // Serial.print("Calibration saved: ");
+  // Serial.println(calibrationFactor, 3);
 }
 
 void drawDial()
@@ -147,10 +150,73 @@ void plotNeedle(float value)
   char buf[8];
   dtostrf(value, 4, 1, buf); // width=4, 1 decimal
   spr.setTextDatum(MC_DATUM);
-  spr.drawString(buf, spr_width / 2 - 2, spr.fontHeight() / 2 + 4);                         // shift left, lower for better centering
-  spr.pushSprite(DIAL_CENTRE_X - spr_width / 2, DIAL_CENTRE_Y - spr.fontHeight() / 2 + 65); // was +54
+  spr.drawString(buf, spr_width / 2 - 2, spr.fontHeight() / 2 + 5);                         // shift left, lower for better centering
+  spr.pushSprite(DIAL_CENTRE_X - spr_width / 2, DIAL_CENTRE_Y - spr.fontHeight() / 2 + 66); // was +54
 
   old_value = value;
+}
+
+void printOtherValues(float rpm, float kmh, float mph)
+{
+  static TFT_eSprite valueSpr = TFT_eSprite(&tft);
+  static int valueSprWidth = 120;
+  static int valueSprHeight = 32;
+  static bool sprInitialized = false;
+
+  if (!sprInitialized)
+  {
+    valueSpr.setColorDepth(16);
+    valueSpr.createSprite(valueSprWidth, valueSprHeight);
+    sprInitialized = true;
+  }
+
+  // Center X
+  int x = DIAL_CENTRE_X - valueSprWidth / 2;
+  // Y: halfway between dial center and "knots" label, minus a bit for spacing
+  int y = DIAL_CENTRE_Y + (DIAL_RADIUS / 4) - 3;
+
+  valueSpr.fillSprite(bg_color);
+  valueSpr.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
+  valueSpr.setTextDatum(MC_DATUM);
+  valueSpr.drawString("RPM", valueSprWidth / 2, valueSprHeight / 2 - 10, 2);
+  valueSpr.pushSprite(x, y - 10);
+
+  // Draw km/h and mph below RPM
+  valueSpr.fillSprite(bg_color);
+  valueSpr.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
+  valueSpr.setTextDatum(MC_DATUM);
+  valueSpr.drawString(String(rpm, 0), valueSprWidth / 2, valueSprHeight / 2, 2);
+  valueSpr.pushSprite(x, y);
+  valueSpr.fillSprite(bg_color);
+}
+
+void showCalibrationFactor()
+{
+  static TFT_eSprite calSpr = TFT_eSprite(&tft);
+  static int calSprWidth = 100;
+  static int calSprHeight = 40;
+  static bool calSprInitialized = false;
+
+  if (!calSprInitialized)
+  {
+    calSpr.setColorDepth(16);
+    calSpr.createSprite(calSprWidth, calSprHeight);
+    calSprInitialized = true;
+  }
+
+  calSpr.fillSprite(bg_color);
+  calSpr.setTextColor(TFT_YELLOW, TFT_TRANSPARENT, true);
+  calSpr.setTextDatum(MC_DATUM);
+
+  char buf[32];
+  sprintf(buf, "Cal: %.2f", calibrationFactor);
+
+  calSpr.drawString(buf, calSprWidth / 2, calSprHeight / 2, 2);
+
+  // Center horizontally, and vertically between origo and top
+  int x = DIAL_CENTRE_X - calSprWidth / 2;
+  int y = (DIAL_CENTRE_Y / 2 - calSprHeight / 2) + 20; // Adjusted for better placement
+  calSpr.pushSprite(x, y);
 }
 
 void setup()
@@ -176,6 +242,7 @@ void setup()
 
   Serial.begin(115200);
   loadCalibration();
+  showCalibration = true;
 }
 
 bool buttonPressed = false;
@@ -205,6 +272,10 @@ void loop()
         calibrationFactor = 0.5;
       saveCalibration();
       buttonPressed = true;
+
+      // Show calibration factor for 3 seconds
+      showCalibration = true;
+      calibrationDisplayMillis = millis();
     }
   }
 
@@ -221,14 +292,32 @@ void loop()
     lastCalcTime = currentMillis;
 
     float rps = (pulses / (float)PULSES_PER_REV) / 0.5f;
+    float rpm = rps * 60.0f;
     float knots = rps * BASE_CONVERSION_FACTOR * calibrationFactor;
+    float kmh = knots * 1.852f;
+    float mph = kmh / 1.609344f;
 
     displayedKnots += (knots - displayedKnots) * smoothingFactor;
+    printOtherValues(rpm, kmh, mph);
     plotNeedle(displayedKnots);
 
-    Serial.print("Speed: ");
-    Serial.print(displayedKnots, 1);
-    Serial.print(" knots | Calibration: ");
-    Serial.println(calibrationFactor, 3);
+    // Serial.print("Speed: ");
+    // Serial.print(displayedKnots, 1);
+    // Serial.print(" knots | Calibration: ");
+    // Serial.print(calibrationFactor, 3);
+    // Serial.print(" | Km/h: ");
+    // Serial.println(kmh, 3);
+  }
+
+  if (showCalibration)
+  {
+    showCalibrationFactor();
+    if (millis() - calibrationDisplayMillis > 3000)
+    {
+      showCalibration = false;
+      // Redraw dial and needle to clear calibration text
+      drawDial();
+      plotNeedle(displayedKnots);
+    }
   }
 }
