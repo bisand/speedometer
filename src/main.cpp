@@ -22,8 +22,8 @@ const uint8_t buttonPin = D2; // Connect push button here
 
 const int EEPROM_ADDR = 0; // EEPROM address to store calibrationFactor
 
-const float SLIP_FACTOR = 0.95; // Adjust this value based on your calibration
-const float CM_PER_REV = (3 * 7.5) * SLIP_FACTOR; // = 213.75 mm per revolution, adjust for your wheel size
+const float SLIP_FACTOR = 1.05; // Adjust this value based on your calibration
+const float CM_PER_REV = (3 * 7.5) * SLIP_FACTOR; // = approx 236 mm per revolution, adjust for your wheel size
 const int PULSES_PER_REV = 3;     // Adjust if your sensor gives a different number of pulses per revolution
 const float METERS_PER_REV = CM_PER_REV / 100.0;
 const float KNOTS_PER_MPS = 1.0 / 0.51444;
