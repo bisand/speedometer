@@ -34,6 +34,7 @@ unsigned long lastCalcTime = 0;
 
 float calibrationFactor = 1.0;
 float displayedKnots = 0.0;
+float displayedRPM = 0.0;
 const float smoothingFactor = 0.2;
 
 bool lastButtonState = HIGH;
@@ -42,6 +43,11 @@ const unsigned long debounceDelay = 50;
 
 unsigned long calibrationDisplayMillis = 0;
 bool showCalibration = false;
+
+unsigned long lastDisplayUpdateTime = 0;
+
+unsigned long lastPulseTime = 0;
+const unsigned long ZERO_TIMEOUT = 2000; // 2 seconds without pulses = zero speed
 
 void IRAM_ATTR onPulse()
 {
@@ -284,29 +290,62 @@ void loop()
     buttonPressed = false; // Button released
   }
 
+  if (currentMillis - lastDisplayUpdateTime >= 1000)
+  {
+    lastDisplayUpdateTime = currentMillis;
+  }
+
   // --- Speed Calculation ---
-  if (currentMillis - lastCalcTime >= 500)
+  if (currentMillis - lastCalcTime >= 100)
   {
     unsigned long pulses = pulseCount - lastPulseCount;
     lastPulseCount = pulseCount;
     lastCalcTime = currentMillis;
 
-    float rps = (pulses / (float)PULSES_PER_REV) / 0.5f;
+    // Check if we've received any pulses
+    if (pulses > 0) {
+      lastPulseTime = currentMillis; // Update last activity time
+    }
+
+    float rps = (pulses / (float)PULSES_PER_REV) / 0.1f;
     float rpm = rps * 60.0f;
     float knots = rps * BASE_CONVERSION_FACTOR * calibrationFactor;
     float kmh = knots * 1.852f;
     float mph = kmh / 1.609344f;
 
-    displayedKnots += (knots - displayedKnots) * smoothingFactor;
-    printOtherValues(rpm, kmh, mph);
-    plotNeedle(displayedKnots);
+    // Check for timeout - force to zero when no pulses for ZERO_TIMEOUT ms
+    bool isZero = (currentMillis - lastPulseTime >= ZERO_TIMEOUT);
+    if (isZero) {
+      rpm = 0;
+      knots = 0;
+      kmh = 0;
+      mph = 0;
+    }
 
-    // Serial.print("Speed: ");
-    // Serial.print(displayedKnots, 1);
-    // Serial.print(" knots | Calibration: ");
-    // Serial.print(calibrationFactor, 3);
-    // Serial.print(" | Km/h: ");
-    // Serial.println(kmh, 3);
+    // Apply smoothing to both RPM and knots
+    float prevDisplayedRPM = displayedRPM;
+    float prevDisplayedKnots = displayedKnots;
+    
+    displayedRPM += (rpm - displayedRPM) * smoothingFactor;
+    displayedKnots += (knots - displayedKnots) * smoothingFactor;
+    
+    // Force to exactly zero when timeout occurs
+    if (isZero && displayedRPM < 10) {
+      displayedRPM = 0;
+    }
+    if (isZero && displayedKnots < 0.1) {
+      displayedKnots = 0;
+    }
+
+    bool forceUpdate = ((currentMillis - lastDisplayUpdateTime) >= 1000); // Update at least every second
+
+    // Only update display if values changed significantly or forced update
+    if (abs(displayedKnots - prevDisplayedKnots) >= 0.05 || abs(round(displayedRPM) - round(prevDisplayedRPM)) >= 3 || forceUpdate || isZero)
+    {
+      printOtherValues(displayedRPM, kmh, mph);
+      plotNeedle(displayedKnots);
+      lastDisplayUpdateTime = currentMillis;
+    }
   }
 
   if (showCalibration)
@@ -318,6 +357,6 @@ void loop()
       // Redraw dial and needle to clear calibration text
       drawDial();
       plotNeedle(displayedKnots);
-    }
+      spr.fillSprite(bg_color);}
   }
 }
