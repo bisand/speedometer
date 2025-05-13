@@ -4,7 +4,7 @@
 #define AA_FONT_LARGE NotoSansBold36
 
 #define DIAL_CENTRE_X 120
-#define DIAL_CENTRE_Y 125 // Move dial lower (was 120)
+#define DIAL_CENTRE_Y 130 // Move dial lower (was 120)
 #define DIAL_RADIUS 110   // Widen dial (was 100)
 #define NEEDLE_LENGTH 80  // Optionally, make needle longer for bigger dial
 #define NEEDLE_WIDTH 7    // Optionally, make needle wider for bigger dial
