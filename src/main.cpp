@@ -9,6 +9,11 @@
 #define NEEDLE_LENGTH 80  // Optionally, make needle longer for bigger dial
 #define NEEDLE_WIDTH 7    // Optionally, make needle wider for bigger dial
 
+#define RPM_AVG_WINDOW 10
+float rpmBuffer[RPM_AVG_WINDOW] = {0};
+int rpmBufferIndex = 0;
+bool rpmBufferFilled = false;
+
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite needle = TFT_eSprite(&tft);
 TFT_eSprite spr = TFT_eSprite(&tft);
@@ -22,12 +27,10 @@ const uint8_t buttonPin = D2; // Connect push button here
 
 const int EEPROM_ADDR = 0; // EEPROM address to store calibrationFactor
 
-//const float SLIP_FACTOR = 1.05; // Adjust this value based on your calibration
-const float CM_PER_REV = 3 * 10; // = approx 300 mm per revolution. This is meassured in real world test. 7.5 knots ≈ 750 rpm. 11 knots ≈ 1130 rmp
-const int PULSES_PER_REV = 3;     // Adjust if your sensor gives a different number of pulses per revolution
+const float CM_PER_REV = 3 * 10; // 300 mm per revolution
+const int PULSES_PER_REV = 3;
 const float METERS_PER_REV = CM_PER_REV / 100.0;
-const float KNOTS_PER_MPS = 1.0 / 0.51444;
-const float BASE_CONVERSION_FACTOR = (METERS_PER_REV / PULSES_PER_REV) * KNOTS_PER_MPS;
+const float BASE_CONVERSION_FACTOR = METERS_PER_REV / 0.51444; // Converts RPS to knots
 
 volatile unsigned long pulseCount = 0;
 unsigned long lastPulseCount = 0;
@@ -310,6 +313,19 @@ void loop()
 
     float rps = (pulses / (float)PULSES_PER_REV) / 0.1f;
     float rpm = rps * 60.0f;
+
+    // --- Moving average for RPM ---
+    rpmBuffer[rpmBufferIndex] = rpm;
+    rpmBufferIndex = (rpmBufferIndex + 1) % RPM_AVG_WINDOW;
+    if (rpmBufferIndex == 0) rpmBufferFilled = true;
+
+    float rpmSum = 0;
+    int rpmCount = rpmBufferFilled ? RPM_AVG_WINDOW : rpmBufferIndex;
+    for (int i = 0; i < rpmCount; ++i) {
+      rpmSum += rpmBuffer[i];
+    }
+    float rpmAvg = (rpmCount > 0) ? (rpmSum / rpmCount) : 0;
+
     float knots = rps * BASE_CONVERSION_FACTOR * calibrationFactor;
     float kmh = knots * 1.852f;
     float mph = kmh / 1.609344f;
@@ -317,7 +333,7 @@ void loop()
     // Check for timeout - force to zero when no pulses for ZERO_TIMEOUT ms
     bool isZero = (currentMillis - lastPulseTime >= ZERO_TIMEOUT);
     if (isZero) {
-      rpm = 0;
+      rpmAvg = 0;
       knots = 0;
       kmh = 0;
       mph = 0;
@@ -327,7 +343,7 @@ void loop()
     float prevDisplayedRPM = displayedRPM;
     float prevDisplayedKnots = displayedKnots;
     
-    displayedRPM += (rpm - displayedRPM) * smoothingFactor;
+    displayedRPM += (rpmAvg - displayedRPM) * smoothingFactor;
     displayedKnots += (knots - displayedKnots) * smoothingFactor;
     
     // Force to exactly zero when timeout occurs
