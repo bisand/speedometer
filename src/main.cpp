@@ -120,6 +120,44 @@ void createNeedle()
   needle.fillRect(0, 0, NEEDLE_WIDTH, NEEDLE_LENGTH, TFT_RED);
 }
 
+void drawKnotsValue(float knots)
+{
+  static float lastKnots = -1;
+  static String lastKnotsStr = "";
+  static int lastX = -1, lastY = -1;
+
+  // Where to draw
+  int x = DIAL_CENTRE_X;               // adjust as desired
+  int y = DIAL_CENTRE_Y + DIAL_RADIUS; // adjust as desired
+
+  // Prepare string (1 decimal)
+  char buf[8];
+  dtostrf(knots, 4, 1, buf);
+  String knotsStr(buf);
+
+  // Erase old text if changed
+  if (knotsStr != lastKnotsStr || lastX != x || lastY != y)
+  {
+    // Overwrite old text with background
+    if (lastKnotsStr.length() > 0)
+    {
+      tft.setTextColor(bg_color, bg_color);
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString(lastKnotsStr, lastX, lastY, 2);
+    }
+
+    // Draw new value
+    tft.setTextColor(TFT_WHITE, bg_color, true);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(knotsStr, x, y, 2);
+
+    lastKnots = knots;
+    lastKnotsStr = knotsStr;
+    lastX = x;
+    lastY = y;
+  }
+}
+
 void plotNeedle(float value)
 {
   static float old_value = -1;
@@ -154,14 +192,8 @@ void plotNeedle(float value)
   // Optional: add a black outline for extra style
   tft.drawTriangle(x0, y0, x1, y1, x2, y2, TFT_BLACK);
 
-  // Draw digital value (with one decimal)
-  spr.fillSprite(bg_color);
-  spr.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
-  char buf[8];
-  dtostrf(value, 4, 1, buf); // width=4, 1 decimal
-  spr.setTextDatum(MC_DATUM);
-  spr.drawString(buf, spr_width / 2 - 2, spr.fontHeight() / 2 + 5);                         // shift left, lower for better centering
-  spr.pushSprite(DIAL_CENTRE_X - spr_width / 2, DIAL_CENTRE_Y - spr.fontHeight() / 2 + 66); // was +54
+  // Call drawKnotsValue instead of sprite-based digital readout
+  drawKnotsValue(value);
 
   old_value = value;
 }
