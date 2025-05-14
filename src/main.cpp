@@ -39,7 +39,7 @@ unsigned long lastCalcTime = 0;
 float calibrationFactor = 1.0;
 float displayedKnots = 0.0;
 float displayedRPM = 0.0;
-const float smoothingFactor = 0.2;
+const float smoothingFactor = 0.4;
 
 bool lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
