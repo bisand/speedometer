@@ -209,42 +209,35 @@ void printOtherValues(float rpm, float kmh, float mph)
 
 void showCalibrationFactor()
 {
-  static TFT_eSprite calSpr = TFT_eSprite(&tft);
-  static int calSprWidth = 100;
-  static int calSprHeight = 40;
-  static bool calSprInitialized = false;
+  // Calibration factor overlay size and position
+  const int calSprWidth = 100;
+  const int calSprHeight = 40;
+  int x = DIAL_CENTRE_X - calSprWidth / 2;
+  int y = (DIAL_CENTRE_Y / 2 - calSprHeight / 2) + 20;
 
-  if (!calSprInitialized)
-  {
-    calSpr.setColorDepth(16);
-    calSpr.createSprite(calSprWidth, calSprHeight);
-    calSprInitialized = true;
-  }
+  // Draw background rectangle
+  tft.fillRect(x, y, calSprWidth, calSprHeight, bg_color);
 
-  calSpr.fillSprite(bg_color);
-  calSpr.setTextColor(TFT_YELLOW, TFT_TRANSPARENT, true);
-  calSpr.setTextDatum(MC_DATUM);
+  // Draw border for visibility (optional)
+  tft.drawRect(x, y, calSprWidth, calSprHeight, TFT_YELLOW);
+
+  // Draw calibration text
+  tft.setTextColor(TFT_YELLOW, bg_color, true);
+  tft.setTextDatum(MC_DATUM);
 
   char buf[32];
   sprintf(buf, "Cal: %.2f", calibrationFactor);
 
-  calSpr.drawString(buf, calSprWidth / 2, calSprHeight / 2, 2);
-
-  // Center horizontally, and vertically between origo and top
-  int x = DIAL_CENTRE_X - calSprWidth / 2;
-  int y = (DIAL_CENTRE_Y / 2 - calSprHeight / 2) + 20; // Adjusted for better placement
-  calSpr.pushSprite(x, y);
+  tft.drawString(buf, x + calSprWidth / 2, y + calSprHeight / 2, 2);
 }
 
-// Add this function to erase the calibration factor overlay
 void hideCalibrationFactor()
 {
-  static int calSprWidth = 100;
-  static int calSprHeight = 40;
-  // Calculate the same position as in showCalibrationFactor
+  // Same area as showCalibrationFactor
+  const int calSprWidth = 100;
+  const int calSprHeight = 40;
   int x = DIAL_CENTRE_X - calSprWidth / 2;
   int y = (DIAL_CENTRE_Y / 2 - calSprHeight / 2) + 20;
-  // Overdraw with background color
   tft.fillRect(x, y, calSprWidth, calSprHeight, bg_color);
 }
 
