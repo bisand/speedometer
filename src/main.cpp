@@ -25,7 +25,9 @@ uint16_t bg_color = TFT_BLACK;
 const uint8_t sensorPin = D1; // Use the actual pin connected to your Hall sensor
 const uint8_t buttonPin = D2; // Connect push button here
 
-const int EEPROM_ADDR = 0; // EEPROM address to store calibrationFactor
+#define EEPROM_CALIBRATION_ADDR 0
+#define EEPROM_VERSION_ADDR 100
+#define EEPROM_VERSION 1
 
 const float CM_PER_REV = 3 * 10; // 300 mm per revolution
 const int PULSES_PER_REV = 3;
@@ -62,20 +64,31 @@ void IRAM_ATTR onPulse()
 
 void loadCalibration()
 {
-  EEPROM.begin(512);
-  EEPROM.get(EEPROM_ADDR, calibrationFactor);
+  uint8_t version = EEPROM.read(EEPROM_VERSION_ADDR);
+  if (version != EEPROM_VERSION)
+  {
+    calibrationFactor = 1.0;
+    EEPROM.write(EEPROM_VERSION_ADDR, EEPROM_VERSION);
+    EEPROM.put(EEPROM_CALIBRATION_ADDR, calibrationFactor);
+    EEPROM.commit();
+    return;
+  }
+  EEPROM.get(EEPROM_CALIBRATION_ADDR, calibrationFactor);
   if (isnan(calibrationFactor) || calibrationFactor < 0.5 || calibrationFactor > 1.5)
   {
-    calibrationFactor = 1.0; // Reset to default if corrupted
+    calibrationFactor = 1.0;
   }
 }
 
 void saveCalibration()
 {
-  EEPROM.put(EEPROM_ADDR, calibrationFactor);
-  EEPROM.commit();
-  // Serial.print("Calibration saved: ");
-  // Serial.println(calibrationFactor, 3);
+  float storedValue;
+  EEPROM.get(EEPROM_CALIBRATION_ADDR, storedValue);
+  if (abs(storedValue - calibrationFactor) > 0.0001)
+  {
+    EEPROM.put(EEPROM_CALIBRATION_ADDR, calibrationFactor);
+    EEPROM.commit();
+  }
 }
 
 void drawDial()
@@ -227,9 +240,11 @@ void printOtherValues(float rpm, float kmh, float mph)
   tft.drawString("RPM", x, y - 12, 2);
 
   // Only update if value changed by at least 10 or position changed
-  if (roundedRpm != int(lastRpm) || lastX != x || lastY != y) {
+  if (roundedRpm != int(lastRpm) || lastX != x || lastY != y)
+  {
     // Erase previous value by overdrawing with background color
-    if (lastRpmStr.length() > 0) {
+    if (lastRpmStr.length() > 0)
+    {
       tft.setTextColor(bg_color, bg_color);
       tft.setTextDatum(MC_DATUM);
       tft.drawString(lastRpmStr, lastX, lastY, 2);
@@ -297,12 +312,20 @@ void hideCalibrationFactor()
   tft.fillRect(x, y, calSprWidth, calSprHeight, bg_color);
 }
 
+unsigned long getPulseCountAtomic()
+{
+  noInterrupts();
+  unsigned long count = pulseCount;
+  interrupts();
+  return count;
+}
+
 void setup()
 {
   pinMode(sensorPin, INPUT_PULLUP);
   pinMode(buttonPin, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(sensorPin), onPulse, FALLING); // or RISING depending on your sensor
+  attachInterrupt(digitalPinToInterrupt(sensorPin), onPulse, FALLING);
 
   tft.begin();
   tft.setRotation(0);
@@ -311,14 +334,16 @@ void setup()
   drawDial();
 
   spr.loadFont(AA_FONT_LARGE);
-  spr_width = spr.textWidth("15.0") + 18;            // More horizontal padding
-  spr.createSprite(spr_width, spr.fontHeight() + 2); // More vertical padding
+  spr_width = spr.textWidth("15.0") + 18;
+  spr.createSprite(spr_width, spr.fontHeight() + 2);
   spr.fillSprite(bg_color);
 
   createNeedle();
   plotNeedle(0.0);
 
   Serial.begin(115200);
+
+  EEPROM.begin(512);
   loadCalibration();
   showCalibration = true;
 }
@@ -370,12 +395,15 @@ void loop()
   // --- Speed Calculation ---
   if (currentMillis - lastCalcTime >= 100)
   {
-    unsigned long pulses = pulseCount - lastPulseCount;
-    lastPulseCount = pulseCount;
+    // Read pulse count atomically
+    unsigned long currentPulseCount = getPulseCountAtomic();
+    unsigned long pulses = currentPulseCount - lastPulseCount;
+    lastPulseCount = currentPulseCount;
     lastCalcTime = currentMillis;
 
     // Check if we've received any pulses
-    if (pulses > 0) {
+    if (pulses > 0)
+    {
       lastPulseTime = currentMillis; // Update last activity time
     }
 
@@ -385,11 +413,13 @@ void loop()
     // --- Moving average for RPM ---
     rpmBuffer[rpmBufferIndex] = rpm;
     rpmBufferIndex = (rpmBufferIndex + 1) % RPM_AVG_WINDOW;
-    if (rpmBufferIndex == 0) rpmBufferFilled = true;
+    if (rpmBufferIndex == 0)
+      rpmBufferFilled = true;
 
     float rpmSum = 0;
     int rpmCount = rpmBufferFilled ? RPM_AVG_WINDOW : rpmBufferIndex;
-    for (int i = 0; i < rpmCount; ++i) {
+    for (int i = 0; i < rpmCount; ++i)
+    {
       rpmSum += rpmBuffer[i];
     }
     float rpmAvg = (rpmCount > 0) ? (rpmSum / rpmCount) : 0;
@@ -400,7 +430,8 @@ void loop()
 
     // Check for timeout - force to zero when no pulses for ZERO_TIMEOUT ms
     bool isZero = (currentMillis - lastPulseTime >= ZERO_TIMEOUT);
-    if (isZero) {
+    if (isZero)
+    {
       rpmAvg = 0;
       knots = 0;
       kmh = 0;
@@ -410,15 +441,17 @@ void loop()
     // Apply smoothing to both RPM and knots
     float prevDisplayedRPM = displayedRPM;
     float prevDisplayedKnots = displayedKnots;
-    
+
     displayedRPM += (rpmAvg - displayedRPM) * smoothingFactor;
     displayedKnots += (knots - displayedKnots) * smoothingFactor;
-    
+
     // Force to exactly zero when timeout occurs
-    if (isZero && displayedRPM < 10) {
+    if (isZero && displayedRPM < 10)
+    {
       displayedRPM = 0;
     }
-    if (isZero && displayedKnots < 0.1) {
+    if (isZero && displayedKnots < 0.1)
+    {
       displayedKnots = 0;
     }
 
