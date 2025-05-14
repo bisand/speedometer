@@ -168,36 +168,43 @@ void plotNeedle(float value)
 
 void printOtherValues(float rpm, float kmh, float mph)
 {
-  static TFT_eSprite valueSpr = TFT_eSprite(&tft);
-  static int valueSprWidth = 120;
-  static int valueSprHeight = 32;
-  static bool sprInitialized = false;
-
-  if (!sprInitialized)
-  {
-    valueSpr.setColorDepth(16);
-    valueSpr.createSprite(valueSprWidth, valueSprHeight);
-    sprInitialized = true;
-  }
+  static float lastRpm = -1;
+  static int lastX = -1, lastY = -1;
+  static String lastRpmStr = "";
 
   // Center X
-  int x = DIAL_CENTRE_X - valueSprWidth / 2;
+  int x = DIAL_CENTRE_X;
   // Y: halfway between dial center and "knots" label, minus a bit for spacing
   int y = DIAL_CENTRE_Y + (DIAL_RADIUS / 4) - 3;
 
-  valueSpr.fillSprite(bg_color);
-  valueSpr.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
-  valueSpr.setTextDatum(MC_DATUM);
-  valueSpr.drawString("RPM", valueSprWidth / 2, valueSprHeight / 2 - 10, 2);
-  valueSpr.pushSprite(x, y - 10);
+  // Prepare RPM string
+  String rpmStr = String(rpm, 0);
 
-  // Draw km/h and mph below RPM
-  valueSpr.fillSprite(bg_color);
-  valueSpr.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
-  valueSpr.setTextDatum(MC_DATUM);
-  valueSpr.drawString(String(rpm, 0), valueSprWidth / 2, valueSprHeight / 2, 2);
-  valueSpr.pushSprite(x, y);
-  valueSpr.fillSprite(bg_color);
+  // Always redraw the "RPM" label (in case the needle overwrites it)
+  tft.setTextColor(TFT_WHITE, bg_color, true);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("RPM", x, y - 12, 2);
+
+  // Only update if value changed
+  if (rpmStr != lastRpmStr || lastX != x || lastY != y) {
+    // Erase previous value by overdrawing with background color
+    if (lastRpmStr.length() > 0) {
+      tft.setTextColor(bg_color, bg_color);
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString(lastRpmStr, lastX, lastY, 2);
+    }
+
+    // Draw new value
+    tft.setTextColor(TFT_WHITE, bg_color, true);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(rpmStr, x, y, 2);
+
+    lastRpmStr = rpmStr;
+    lastX = x;
+    lastY = y;
+  }
+
+  // Optionally, draw km/h and mph below (similar logic can be used)
 }
 
 void showCalibrationFactor()
@@ -227,6 +234,18 @@ void showCalibrationFactor()
   int x = DIAL_CENTRE_X - calSprWidth / 2;
   int y = (DIAL_CENTRE_Y / 2 - calSprHeight / 2) + 20; // Adjusted for better placement
   calSpr.pushSprite(x, y);
+}
+
+// Add this function to erase the calibration factor overlay
+void hideCalibrationFactor()
+{
+  static int calSprWidth = 100;
+  static int calSprHeight = 40;
+  // Calculate the same position as in showCalibrationFactor
+  int x = DIAL_CENTRE_X - calSprWidth / 2;
+  int y = (DIAL_CENTRE_Y / 2 - calSprHeight / 2) + 20;
+  // Overdraw with background color
+  tft.fillRect(x, y, calSprWidth, calSprHeight, bg_color);
 }
 
 void setup()
@@ -367,13 +386,14 @@ void loop()
 
   if (showCalibration)
   {
-    showCalibrationFactor();
     if (millis() - calibrationDisplayMillis > 3000)
     {
       showCalibration = false;
-      // Redraw dial and needle to clear calibration text
-      drawDial();
-      plotNeedle(displayedKnots);
-      spr.fillSprite(bg_color);}
+      hideCalibrationFactor(); // Only erase the overlay area
+    }
+    else
+    {
+      showCalibrationFactor();
+    }
   }
 }
