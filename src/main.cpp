@@ -14,6 +14,11 @@ float rpmBuffer[RPM_AVG_WINDOW] = {0};
 int rpmBufferIndex = 0;
 bool rpmBufferFilled = false;
 
+#define KNOTS_AVG_WINDOW 10
+float knotsBuffer[KNOTS_AVG_WINDOW] = {0};
+int knotsBufferIndex = 0;
+bool knotsBufferFilled = false;
+
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite needle = TFT_eSprite(&tft);
 TFT_eSprite spr = TFT_eSprite(&tft);
@@ -41,7 +46,10 @@ unsigned long lastCalcTime = 0;
 float calibrationFactor = 1.0;
 float displayedKnots = 0.0;
 float displayedRPM = 0.0;
-const float smoothingFactor = 0.4;
+float prevDisplayedKnots = 0.0;
+float prevDisplayedRPM = 0.0;
+const float smoothingFactorRPM = 0.15; // Lower value = more smoothing
+const float smoothingFactorKnots = 0.15; // Lower value = more smoothing
 
 bool lastButtonState = HIGH;
 unsigned long lastDebounceTime = 0;
@@ -49,6 +57,7 @@ const unsigned long debounceDelay = 50;
 
 unsigned long calibrationDisplayMillis = 0;
 bool showCalibration = false;
+bool calibrationFactorShowing = false;
 
 unsigned long lastDisplayUpdateTime = 0;
 
@@ -120,8 +129,8 @@ void drawDial()
 
   // Draw units, moved lower (e.g. +60 pixels)
   tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.drawString("knots", DIAL_CENTRE_X, DIAL_CENTRE_Y + DIAL_RADIUS / 2 + 40, 2);
+  tft.setTextColor(TFT_WHITE, TFT_TRANSPARENT);
+  tft.drawString("knots", DIAL_CENTRE_X, DIAL_CENTRE_Y + DIAL_RADIUS / 2 + 38, 2);
 }
 
 void createNeedle()
@@ -131,47 +140,6 @@ void createNeedle()
   needle.fillSprite(TFT_BLACK);
   needle.setPivot(NEEDLE_WIDTH / 2, NEEDLE_LENGTH - 2);
   needle.fillRect(0, 0, NEEDLE_WIDTH, NEEDLE_LENGTH, TFT_RED);
-}
-
-void drawKnotsValue(float knots)
-{
-  static float lastKnots = -1000.0f; // Use an impossible initial value
-  static String lastKnotsStr = "";
-  static int lastX = -1, lastY = -1;
-
-  // Where to draw
-  int x = DIAL_CENTRE_X;
-  int y = DIAL_CENTRE_Y + DIAL_RADIUS;
-
-  // Round to 1 decimal for comparison
-  float roundedKnots = roundf(knots * 10.0f) / 10.0f;
-
-  // Prepare string (1 decimal)
-  char buf[8];
-  dtostrf(roundedKnots, 4, 1, buf);
-  String knotsStr(buf);
-
-  // Only update if value changed by 0.1 or position changed
-  if (roundedKnots != lastKnots || lastX != x || lastY != y)
-  {
-    // Overwrite old text with background
-    if (lastKnotsStr.length() > 0)
-    {
-      tft.setTextColor(bg_color, bg_color);
-      tft.setTextDatum(MC_DATUM);
-      tft.drawString(lastKnotsStr, lastX, lastY, 2);
-    }
-
-    // Draw new value
-    tft.setTextColor(TFT_WHITE, bg_color, true);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString(knotsStr, x, y, 2);
-
-    lastKnots = roundedKnots;
-    lastKnotsStr = knotsStr;
-    lastX = x;
-    lastY = y;
-  }
 }
 
 void plotNeedle(float value)
@@ -212,15 +180,59 @@ void plotNeedle(float value)
     tft.fillTriangle(x0, y0, x1, y1, x2, y2, TFT_RED);
     tft.drawTriangle(x0, y0, x1, y1, x2, y2, TFT_BLACK);
 
-    // Call drawKnotsValue instead of sprite-based digital readout
-    drawKnotsValue(roundedValue);
-
     old_value = roundedValue;
   }
 }
 
+void drawKnotsValue(float knots)
+{
+  tft.loadFont(AA_FONT_LARGE);
+  static float lastKnots = -1000.0f; // Use an impossible initial value
+  static String lastKnotsStr = "";
+  static int lastX = -1, lastY = -1;
+
+  // Where to draw
+  int x = DIAL_CENTRE_X;
+  int y = DIAL_CENTRE_Y + (DIAL_RADIUS / 2) + 15;
+
+  // Round to 1 decimal for comparison
+  float roundedKnots = roundf(knots * 10.0f) / 10.0f;
+
+  // Prepare string (1 decimal)
+  char buf[8];
+  dtostrf(roundedKnots, 4, 1, buf);
+  String knotsStr(buf);
+
+  // Only update if value changed by 0.1 or position changed
+  if (roundedKnots != lastKnots || lastX != x || lastY != y)
+  {
+    // Overwrite old text with background
+    if (lastKnotsStr.length() > 0)
+    {
+      tft.setTextColor(bg_color, TFT_TRANSPARENT);
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString(lastKnotsStr, lastX, lastY, 2);
+    }
+
+    // Draw new value
+    tft.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(knotsStr, x - 5, y, 2);
+
+    lastKnots = roundedKnots;
+    lastKnotsStr = knotsStr;
+    lastX = x;
+    lastY = y;
+  }
+  tft.unloadFont(); // Restore default font
+}
+
 void printOtherValues(float rpm, float kmh, float mph)
 {
+  tft.setTextFont(1);
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_GREEN, TFT_TRANSPARENT, true);
+
   static float lastRpm = -1000.0f; // Use an impossible initial value
   static String lastRpmStr = "";
   static int lastX = -1, lastY = -1;
@@ -228,16 +240,16 @@ void printOtherValues(float rpm, float kmh, float mph)
   // Center X
   int x = DIAL_CENTRE_X;
   // Y: halfway between dial center and "knots" label, minus a bit for spacing
-  int y = DIAL_CENTRE_Y + (DIAL_RADIUS / 4) - 3;
+  int y = DIAL_CENTRE_Y + (DIAL_RADIUS / 3) + 5;
 
   // Round RPM to nearest 10 for display and comparison
   int roundedRpm = int((rpm + 5) / 10) * 10;
   String rpmStr = String(roundedRpm);
 
   // Always redraw the "RPM" label (in case the needle overwrites it)
-  tft.setTextColor(TFT_WHITE, bg_color, true);
+  tft.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
   tft.setTextDatum(MC_DATUM);
-  tft.drawString("RPM", x, y - 12, 2);
+  tft.drawString("RPM", x, y - 14, 2);
 
   // Only update if value changed by at least 10 or position changed
   if (roundedRpm != int(lastRpm) || lastX != x || lastY != y)
@@ -245,13 +257,13 @@ void printOtherValues(float rpm, float kmh, float mph)
     // Erase previous value by overdrawing with background color
     if (lastRpmStr.length() > 0)
     {
-      tft.setTextColor(bg_color, bg_color);
+      tft.setTextColor(bg_color, TFT_TRANSPARENT);
       tft.setTextDatum(MC_DATUM);
       tft.drawString(lastRpmStr, lastX, lastY, 2);
     }
 
     // Draw new value
-    tft.setTextColor(TFT_WHITE, bg_color, true);
+    tft.setTextColor(TFT_WHITE, TFT_TRANSPARENT, true);
     tft.setTextDatum(MC_DATUM);
     tft.drawString(rpmStr, x, y, 2);
 
@@ -378,6 +390,7 @@ void loop()
 
       // Show calibration factor for 3 seconds
       showCalibration = true;
+      calibrationFactorShowing = false;
       calibrationDisplayMillis = millis();
     }
   }
@@ -428,22 +441,33 @@ void loop()
     float kmh = knots * 1.852f;
     float mph = kmh / 1.609344f;
 
+    // Add new knots value to buffer
+    knotsBuffer[knotsBufferIndex] = knots;
+    knotsBufferIndex = (knotsBufferIndex + 1) % KNOTS_AVG_WINDOW;
+    if (knotsBufferIndex == 0)
+      knotsBufferFilled = true;
+
+    float knotsSum = 0;
+    int knotsCount = knotsBufferFilled ? KNOTS_AVG_WINDOW : knotsBufferIndex;
+    for (int i = 0; i < knotsCount; ++i)
+    {
+      knotsSum += knotsBuffer[i];
+    }
+    float knotsAvg = (knotsCount > 0) ? (knotsSum / knotsCount) : 0;
+
     // Check for timeout - force to zero when no pulses for ZERO_TIMEOUT ms
     bool isZero = (currentMillis - lastPulseTime >= ZERO_TIMEOUT);
     if (isZero)
     {
       rpmAvg = 0;
-      knots = 0;
+      knotsAvg = 0;
       kmh = 0;
       mph = 0;
     }
 
     // Apply smoothing to both RPM and knots
-    float prevDisplayedRPM = displayedRPM;
-    float prevDisplayedKnots = displayedKnots;
-
-    displayedRPM += (rpmAvg - displayedRPM) * smoothingFactor;
-    displayedKnots += (knots - displayedKnots) * smoothingFactor;
+    displayedRPM += (rpmAvg - displayedRPM) * smoothingFactorRPM;
+    displayedKnots += (knotsAvg - displayedKnots) * smoothingFactorKnots;
 
     // Force to exactly zero when timeout occurs
     if (isZero && displayedRPM < 10)
@@ -461,8 +485,13 @@ void loop()
     if (abs(displayedKnots - prevDisplayedKnots) >= 0.05 || abs(round(displayedRPM) - round(prevDisplayedRPM)) >= 3 || forceUpdate || isZero)
     {
       printOtherValues(displayedRPM, kmh, mph);
+      drawKnotsValue(displayedKnots);
       plotNeedle(displayedKnots);
       lastDisplayUpdateTime = currentMillis;
+
+      // Update previous values here
+      prevDisplayedKnots = displayedKnots;
+      prevDisplayedRPM = displayedRPM;
     }
   }
 
@@ -471,10 +500,12 @@ void loop()
     if (millis() - calibrationDisplayMillis > 3000)
     {
       showCalibration = false;
-      hideCalibrationFactor(); // Only erase the overlay area
+      hideCalibrationFactor();
+      calibrationFactorShowing = false;
     }
-    else
+    else if (!calibrationFactorShowing)
     {
+      calibrationFactorShowing = true;
       showCalibrationFactor();
     }
   }
