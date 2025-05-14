@@ -122,21 +122,24 @@ void createNeedle()
 
 void drawKnotsValue(float knots)
 {
-  static float lastKnots = -1;
+  static float lastKnots = -1000.0f; // Use an impossible initial value
   static String lastKnotsStr = "";
   static int lastX = -1, lastY = -1;
 
   // Where to draw
-  int x = DIAL_CENTRE_X;               // adjust as desired
-  int y = DIAL_CENTRE_Y + DIAL_RADIUS; // adjust as desired
+  int x = DIAL_CENTRE_X;
+  int y = DIAL_CENTRE_Y + DIAL_RADIUS;
+
+  // Round to 1 decimal for comparison
+  float roundedKnots = roundf(knots * 10.0f) / 10.0f;
 
   // Prepare string (1 decimal)
   char buf[8];
-  dtostrf(knots, 4, 1, buf);
+  dtostrf(roundedKnots, 4, 1, buf);
   String knotsStr(buf);
 
-  // Erase old text if changed
-  if (knotsStr != lastKnotsStr || lastX != x || lastY != y)
+  // Only update if value changed by 0.1 or position changed
+  if (roundedKnots != lastKnots || lastX != x || lastY != y)
   {
     // Overwrite old text with background
     if (lastKnotsStr.length() > 0)
@@ -151,7 +154,7 @@ void drawKnotsValue(float knots)
     tft.setTextDatum(MC_DATUM);
     tft.drawString(knotsStr, x, y, 2);
 
-    lastKnots = knots;
+    lastKnots = roundedKnots;
     lastKnotsStr = knotsStr;
     lastX = x;
     lastY = y;
@@ -160,65 +163,71 @@ void drawKnotsValue(float knots)
 
 void plotNeedle(float value)
 {
-  static float old_value = -1;
+  static float old_value = -1000.0f; // Use an impossible initial value
 
-  // Erase old needle by overdrawing with dial center color
-  if (old_value >= 0)
+  // Round to 1 decimal for comparison
+  float roundedValue = roundf(value * 10.0f) / 10.0f;
+
+  // Only update if value changed by 0.1
+  if (roundedValue != old_value)
   {
-    float old_angle = (225.0 - (old_value * 270.0 / 15.0)) * DEG_TO_RAD;
-    // Draw over old needle with dial center color (TFT_BLACK)
-    float dx = cos(old_angle);
-    float dy = -sin(old_angle);
+    // Erase old needle by overdrawing with dial center color
+    if (old_value > -999.0f)
+    {
+      float old_angle = (225.0 - (old_value * 270.0 / 15.0)) * DEG_TO_RAD;
+      float dx = cos(old_angle);
+      float dy = -sin(old_angle);
+      int x0 = DIAL_CENTRE_X + int(-dy * 7); // wider base
+      int y0 = DIAL_CENTRE_Y + int(dx * 7);
+      int x1 = DIAL_CENTRE_X + int(dy * 7);
+      int y1 = DIAL_CENTRE_Y - int(dx * 7);
+      int x2 = DIAL_CENTRE_X + int(dx * (NEEDLE_LENGTH));
+      int y2 = DIAL_CENTRE_Y + int(dy * (NEEDLE_LENGTH));
+      tft.fillTriangle(x0, y0, x1, y1, x2, y2, TFT_BLACK);
+    }
+
+    // Draw new needle as a filled triangle (cooler look)
+    float angle = (225.0 - (roundedValue * 270.0 / 15.0)) * DEG_TO_RAD;
+    float dx = cos(angle);
+    float dy = -sin(angle);
     int x0 = DIAL_CENTRE_X + int(-dy * 7); // wider base
     int y0 = DIAL_CENTRE_Y + int(dx * 7);
     int x1 = DIAL_CENTRE_X + int(dy * 7);
     int y1 = DIAL_CENTRE_Y - int(dx * 7);
     int x2 = DIAL_CENTRE_X + int(dx * (NEEDLE_LENGTH));
     int y2 = DIAL_CENTRE_Y + int(dy * (NEEDLE_LENGTH));
-    tft.fillTriangle(x0, y0, x1, y1, x2, y2, TFT_BLACK);
+    tft.fillTriangle(x0, y0, x1, y1, x2, y2, TFT_RED);
+    tft.drawTriangle(x0, y0, x1, y1, x2, y2, TFT_BLACK);
+
+    // Call drawKnotsValue instead of sprite-based digital readout
+    drawKnotsValue(roundedValue);
+
+    old_value = roundedValue;
   }
-
-  // Draw new needle as a filled triangle (cooler look)
-  float angle = (225.0 - (value * 270.0 / 15.0)) * DEG_TO_RAD;
-  float dx = cos(angle);
-  float dy = -sin(angle);
-  int x0 = DIAL_CENTRE_X + int(-dy * 7); // wider base
-  int y0 = DIAL_CENTRE_Y + int(dx * 7);
-  int x1 = DIAL_CENTRE_X + int(dy * 7);
-  int y1 = DIAL_CENTRE_Y - int(dx * 7);
-  int x2 = DIAL_CENTRE_X + int(dx * (NEEDLE_LENGTH));
-  int y2 = DIAL_CENTRE_Y + int(dy * (NEEDLE_LENGTH));
-  tft.fillTriangle(x0, y0, x1, y1, x2, y2, TFT_RED);
-  // Optional: add a black outline for extra style
-  tft.drawTriangle(x0, y0, x1, y1, x2, y2, TFT_BLACK);
-
-  // Call drawKnotsValue instead of sprite-based digital readout
-  drawKnotsValue(value);
-
-  old_value = value;
 }
 
 void printOtherValues(float rpm, float kmh, float mph)
 {
-  static float lastRpm = -1;
-  static int lastX = -1, lastY = -1;
+  static float lastRpm = -1000.0f; // Use an impossible initial value
   static String lastRpmStr = "";
+  static int lastX = -1, lastY = -1;
 
   // Center X
   int x = DIAL_CENTRE_X;
   // Y: halfway between dial center and "knots" label, minus a bit for spacing
   int y = DIAL_CENTRE_Y + (DIAL_RADIUS / 4) - 3;
 
-  // Prepare RPM string
-  String rpmStr = String(rpm, 0);
+  // Round RPM to nearest 10 for display and comparison
+  int roundedRpm = int((rpm + 5) / 10) * 10;
+  String rpmStr = String(roundedRpm);
 
   // Always redraw the "RPM" label (in case the needle overwrites it)
   tft.setTextColor(TFT_WHITE, bg_color, true);
   tft.setTextDatum(MC_DATUM);
   tft.drawString("RPM", x, y - 12, 2);
 
-  // Only update if value changed
-  if (rpmStr != lastRpmStr || lastX != x || lastY != y) {
+  // Only update if value changed by at least 10 or position changed
+  if (roundedRpm != int(lastRpm) || lastX != x || lastY != y) {
     // Erase previous value by overdrawing with background color
     if (lastRpmStr.length() > 0) {
       tft.setTextColor(bg_color, bg_color);
@@ -231,12 +240,27 @@ void printOtherValues(float rpm, float kmh, float mph)
     tft.setTextDatum(MC_DATUM);
     tft.drawString(rpmStr, x, y, 2);
 
+    lastRpm = roundedRpm;
     lastRpmStr = rpmStr;
     lastX = x;
     lastY = y;
   }
 
-  // Optionally, draw km/h and mph below (similar logic can be used)
+  // Optionally, draw km/h and mph below using similar logic
+  // For example:
+  /*
+  static String lastKmhStr = "";
+  int yKmh = y + 20;
+  String kmhStr = String(int(kmh + 0.5f)) + " km/h";
+  if (kmhStr != lastKmhStr) {
+    tft.setTextColor(bg_color, bg_color);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(lastKmhStr, x, yKmh, 2);
+    tft.setTextColor(TFT_WHITE, bg_color, true);
+    tft.drawString(kmhStr, x, yKmh, 2);
+    lastKmhStr = kmhStr;
+  }
+  */
 }
 
 void showCalibrationFactor()
